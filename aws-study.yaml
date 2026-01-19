@@ -53,4 +53,6 @@ Resources:
       Tags:
         - Key: Name
           Value: aws-study-ec2-Up
-           
+
+# Edited in feature/add-cloudformation-template branch
+
