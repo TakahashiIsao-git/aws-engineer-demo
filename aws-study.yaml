@@ -25,6 +25,40 @@ Resources:
         - Key: Name
           Value: MySubnet-Up
 
+  MyInternetGateway: #インターネットゲートウェイの追加
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyVPC-Up-IGW
+
+  MyVPCGatewayAttachment: #VPCにIGWをアタッチ
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+  MyRouteTable: #ルートテーブルの追加
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MyRouteTable-Up
+
+  MyRoute: #デフォルトルート(0.0.0.0./0)の追加
+    Type: AWS::EC2::Route
+    DependsOn: MyVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref MyRouteTable 
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyInternetGateway
+  
+  MySubnetRouteTableAssociation: #サブネットとルートテーブルの関連付け
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      SubnetId: !Ref MySubnet
 
   MySecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -53,6 +87,7 @@ Resources:
       Tags:
         - Key: Name
           Value: aws-study-ec2-Up
+  
 
 # Edited in feature/add-cloudformation-template branch
 
