@@ -19,57 +19,56 @@ Resources:
     Properties:
       VpcId: !Ref MyVPC
       CidrBlock: 10.1.1.0/24
-      MapPublicIpOnLaunch: true
+      MapPublicIpOnLaunch: true # 学習課題としてEC2にSSH接続して動作確認を行うためにtrueを設定している。
       AvailabilityZone: !Select [ 0, !GetAZs "" ]
       Tags:
         - Key: Name
           Value: MySubnet-Up
 
-  MyInternetGateway: #インターネットゲートウェイの追加
+
+  MyInternetGateway: # 将来パブリックサブネット化を想定して定義している。
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
           Value: MyVPC-Up-IGW
 
-  MyVPCGatewayAttachment: #VPCにIGWをアタッチ
+
+  MyVPCGatewayAttachment: # 将来インターネット通信が必要になった場合に備えて、
+                          # あらかじめIGWをVPCへアタッチしている（現時点ではルート未定義）。
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref MyVPC
       InternetGatewayId: !Ref MyInternetGateway
 
-  MyRouteTable: #ルートテーブルの追加
+
+  MyRouteTable: # 将来サブネットごとに通信制御を分離することを想定し、
+                # 専用のルートテーブルを作成している（現時点ではローカルルートのみ）。
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref MyVPC
       Tags:
         - Key: Name
           Value: MyRouteTable-Up
-
-  MyRoute: #デフォルトルート(0.0.0.0./0)の追加
-    Type: AWS::EC2::Route
-    DependsOn: MyVPCGatewayAttachment
-    Properties:
-      RouteTableId: !Ref MyRouteTable 
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref MyInternetGateway
   
-  MySubnetRouteTableAssociation: #サブネットとルートテーブルの関連付け
+
+  MySubnetRouteTableAssociation: # サブネットとルートテーブルの関連付け
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref MyRouteTable
       SubnetId: !Ref MySubnet
 
+
   MySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow SSH access 
+      GroupDescription: Allow SSH access from specific global IP only
       VpcId: !Ref MyVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
+          CidrIp: 210.128.165.154/32
       Tags:
         - Key: Name
           Value: MySecurityGroup-Up
