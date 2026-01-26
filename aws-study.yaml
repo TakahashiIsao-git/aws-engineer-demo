@@ -26,49 +26,16 @@ Resources:
           Value: MySubnet-Up
 
 
-  MyInternetGateway: # 将来パブリックサブネット化を想定して定義している。
-    Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: MyVPC-Up-IGW
-
-
-  MyVPCGatewayAttachment: # 将来インターネット通信が必要になった場合に備えて、
-                          # あらかじめIGWをVPCへアタッチしている（現時点ではルート未定義）。
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref MyVPC
-      InternetGatewayId: !Ref MyInternetGateway
-
-
-  MyRouteTable: # 将来サブネットごとに通信制御を分離することを想定し、
-                # 専用のルートテーブルを作成している（現時点ではローカルルートのみ）。
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref MyVPC
-      Tags:
-        - Key: Name
-          Value: MyRouteTable-Up
-  
-
-  MySubnetRouteTableAssociation: # サブネットとルートテーブルの関連付け
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MyRouteTable
-      SubnetId: !Ref MySubnet
-
-
   MySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow SSH access from specific global IP only
+      GroupDescription: Allow SSH access from my global IP only for learning purpose
       VpcId: !Ref MyVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 210.128.165.154/32
+          CidrIp: 210.128.165.154/32 # 学習課題のためグローバルIPのみに制限
       Tags:
         - Key: Name
           Value: MySecurityGroup-Up
@@ -88,5 +55,6 @@ Resources:
           Value: aws-study-ec2-Up
   
 
+  
 # Edited in feature/add-cloudformation-template branch
 
