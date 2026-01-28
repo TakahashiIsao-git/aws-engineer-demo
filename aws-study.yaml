@@ -26,6 +26,49 @@ Resources:
           Value: MySubnet-Up
 
 
+  MyInternetGateway:  # EC2にSSH接続して動作確認を行う学習課題のため、
+                      # インターネット通信を可能にするInternet Gatewayを作成している。
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyVPC-Up-IGW
+
+
+  MyVPCGatewayAttachment: # EC2にSSH接続して動作確認を行うため、Internet GatewayをVPCにアタッチし、
+                          # 0.0.0.0/0をIGWに向けたルートを定義している。
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+
+  MyPublicRouteTable: # パブリックサブネット用のルートテーブル。
+                # 0.0.0.0/0をInternet Gatewayに向けることでインターネット通信を可能にしている。
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MyPublicRouteTable-Up
+
+
+  MyPublicRoute: # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義。
+    Type: AWS::EC2::Route
+    DependsOn: MyVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref MyPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0 
+      GatewayId: !Ref MyInternetGateway   
+
+
+  MySubnetRouteTableAssociation: # サブネットとルートテーブルの関連付け
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MyPublicRouteTable
+      SubnetId: !Ref MySubnet
+
+
   MySecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -35,7 +78,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 210.128.165.154/32 # 学習課題のためグローバルIPのみに制限
+          CidrIp: 210.128.165.154/32
       Tags:
         - Key: Name
           Value: MySecurityGroup-Up
@@ -44,7 +87,7 @@ Resources:
   MyInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: ami-09cd9fdbf26acc6b4
+      ImageId: ami-09cd9fdbf26acc6b4 #本課題は東京リージョン前提の演習であるため、今回はAMIを固定値としています。
       InstanceType: t2.micro
       SubnetId: !Ref MySubnet
       SecurityGroupIds:
