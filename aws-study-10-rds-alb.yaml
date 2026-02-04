@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: 既存EC2に対してALBとRDSを作成するテンプレート
+
+
+Parameters: # 既存リソースのVPC、EC2、サブネットのIDを受け取る。
+            # RDS用のユーザーネームとパスワードを定義する。
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 第9回演習課題で作成したVPCのID
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: ALB用パブリックサブネット1
+  
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: ALB用パブリックサブネット2
+  
+  EC2InstanceId:
+    Type: AWS::EC2::Instance::Id
+    Description: 第9回演習課題で作成したEC2のID
+  
+  DBMasterUserName:
+    Type: String
+    Default: admin
+    Description: RDS master username
+  
+  DBMasterUserPassword:
+    Type: String
+    NoEcho: true # パスワードを「*」でマスクする。
+    Description: RDS master user password
+
+
+Resources:
+  ALBSecurityGroup: # ALBのセキュリティグループ
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+  
+
+  ApplicationLoadBalancer: # ALB本体
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: aws-study-10assignment-alb
+      Scheme: internet-facing # パブリックサブネットは必須
+      Type: application
+      Subnets: # 今回の演習課題は２つのパブリックサブネットで設定する。
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+  
+
+  TargetGroup: # EC2を登録する。
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      Targets:
+        - Id: !Ref EC2InstanceId
+      HealthCheckPath: /
+
+
+  Listener: # ALBの受付係
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+  
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId 
+      GroupDescription: Allow MySQL access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 10.0.0.0/16
+  
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: RDS subnet group
+      SubnetIds:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+  
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: mysql
+      DBInstanceClass: db.t4g.micro
+      AllocatedStorage: 20
+      MasterUsername: !Ref DBMasterUserName
+      MasterUserPassword: !Ref DBMasterUserPassword
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+
+    
