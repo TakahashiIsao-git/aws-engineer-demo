@@ -1,5 +1,12 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: EC2、ALBとRDSを作成するテンプレート
+Description: Study environment vpc ec2 alb add rds
+
+
+# RDSパスワードのマスク表示
+Parameters:
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
 
 
 Resources:
@@ -64,7 +71,7 @@ Resources:
       VpcId: !Ref StudyVPC
       Tags:
         - Key: Name
-          Value: aws-study-publicroutetable
+          Value: aws-study-public-rt
 
 
   # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義。
@@ -78,11 +85,17 @@ Resources:
 
 
   # サブネットとルートテーブルの関連付け
-  StudySubnetRouteTableAssociation: 
+  StudySubnetRouteTableAssociationAz1a: 
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
       RouteTableId: !Ref StudyPublicRouteTable
       SubnetId: !Ref StudyPublicSubnetAz1a
+
+  StudySubnetRouteTableAssociationAz1c: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1c
 
 
   # EC2用セキュリティグループ
@@ -122,8 +135,129 @@ Resources:
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
       KeyName: aws-dev-20250514
+      Monitoring: false
       Tags:
         - Key: Name
           Value: aws-study-ec2
 
+
+  # ALB用セキュリティグループ
+  ALBSecurityGroup: 
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study ALB
+      VpcId: !Ref StudyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+
+  # ロードバランサー
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: aws-study-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets: 
+        - !Ref StudyPublicSubnetAz1a
+        - !Ref StudyPublicSubnetAz1c
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: aws-study-alb
+
+
+  # ターゲットグループ
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: aws-study-tg
+      VpcId: !Ref StudyVPC
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckPort: "traffic-port"
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 30
+      Matcher: 
+        HttpCode: 200-301
+      Targets:
+        - Id: !Ref StudyEC2Instance
+          Port: 8080
+      Tags:
+        - Key: Name
+          Value: aws-study-tg
+
+
+  # リスナー
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
   
+
+  # RDS用セキュリティグループ（EC2からのみ接続許可）
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref StudyVPC
+      GroupDescription: AWS Study RDS
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+  
+
+  # DBサブネットグループ
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: subnet group for rds
+      SubnetIds:
+        - !Ref StudyPublicSubnetAz1a
+        - !Ref StudyPublicSubnetAz1c
+  
+
+  # RDS
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: mysql
+      EngineVersion: 8.0.43
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBMasterPassword
+      DBInstanceClass: db.t4g.micro
+      StorageType: gp3
+      AllocatedStorage: 20
+      Port: 3306
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      LicenseModel: general-public-license
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBName: awsstudy
+      BackupRetentionPeriod: 0
+      EnableCloudwatchLogsExports:
+        - error
+        - slowquery
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: aws-study-rds
