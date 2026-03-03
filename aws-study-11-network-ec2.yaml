@@ -1,8 +1,14 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: AWS-Study Template
+Description: Standard Study #11 - Public VPC with EC2 Web Server
+
+Parameters:
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select existing key pair
+
 
 Resources:
-  MyVPC:
+  StudyVPC:
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.1.0.0/16
@@ -12,32 +18,33 @@ Resources:
         - Key: Name
           Value: aws-study-vpc
 
+
   # Subnet（2つともパブリックIPを自動付与可能にする）
-  SubnetAZ1a: 
+  PublicSubnetAZ1a: 
     Type: AWS::EC2::Subnet
     Properties:
       CidrBlock: 10.1.1.0/24
-      VpcId: !Ref MyVPC
+      VpcId: !Ref StudyVPC
       AvailabilityZone: ap-northeast-1a
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: aws-study-subnet1a
+          Value: aws-study-publicsubnet1a
 
-  SubnetAZ1c:
+  PublicSubnetAZ1c:
     Type: AWS::EC2::Subnet
     Properties:
       CidrBlock: 10.1.2.0/24
-      VpcId: !Ref MyVPC
+      VpcId: !Ref StudyVPC
       AvailabilityZone: ap-northeast-1c
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: aws-study-subnet1c
+          Value: aws-study-publicsubnet1c
 
 
   # InternetGateway
-  MyInternetGateway:
+  InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
@@ -46,87 +53,88 @@ Resources:
 
 
   # VPCGatewayAttachment
-  MyVPCGatewayAttachment: 
+  VPCGatewayAttachment: 
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      VpcId: !Ref MyVPC
-      InternetGatewayId: !Ref MyInternetGateway
+      VpcId: !Ref StudyVPC
+      InternetGatewayId: !Ref InternetGateway
 
 
   # RouteTable
-  MyRouteTable:
+  PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref MyVPC
+      VpcId: !Ref StudyVPC
       Tags:
         - Key: Name
-          Value: aws-study-route
+          Value: aws-study-rt
 
 
   # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義。
-  MyRouteInternet:
+  DefaultRouteToInternet:
     Type: AWS::EC2::Route
-    DependsOn: MyVPCGatewayAttachment 
+    DependsOn: VPCGatewayAttachment 
     Properties:
-      RouteTableId: !Ref MyRouteTable
+      RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0 
-      GatewayId: !Ref MyInternetGateway   
+      GatewayId: !Ref InternetGateway   
 
 
   # 各サブネットとルートテーブルを関連付け（パブリックサブネット化）
-  MyRouteLocal: 
+  PublicSubnetAZ1aRouteAssociation: 
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref MyRouteTable
-      SubnetId: !Ref SubnetAZ1a
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ1a
+
 
   # ALBやRDSを配置するSubnetAZ1cもインターネットアクセスできるように関連付け
-  MyRouteLocal2: 
+  PublicSubnetAZ1cRouteAssociation: 
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref MyRouteTable
-      SubnetId: !Ref SubnetAZ1c
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnetAZ1c
 
 
-  MySecurityGroupEC2:
+  EC2WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: AWS Study EC2
-      VpcId: !Ref MyVPC
+      VpcId: !Ref StudyVPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # 本番では自分のIPに限定すること
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # 本番では自分のIPに限定すること
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # 本番では自分のIPに限定すること
       SecurityGroupEgress:
         - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # 本番では自分のIPに限定すること
       Tags:
         - Key: Name
-          Value: aws-study-securityGroup-ec2
+          Value: aws-study-ec2websecurityGroup
   
 
-  MyInstance:
+  WebServerInstance:
   # EC2（Amazon Linux 2023, t2.micro）
     Type: AWS::EC2::Instance
     Properties:
   # Amazon Linux 2023の最新AMIをSSMパラメータストアから取得
       ImageId: !Sub "resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
       InstanceType: t2.micro
-      SubnetId: !Ref SubnetAZ1a
+      SubnetId: !Ref PublicSubnetAZ1a
       DisableApiTermination: false
       InstanceInitiatedShutdownBehavior: stop
       SecurityGroupIds:
-        - !Ref MySecurityGroupEC2
-      KeyName: aws-dev-20250514
+        - !Ref EC2WebSecurityGroup
+      KeyName: !Ref KeyPairName
       Monitoring: false
       Tags:
         - Key: Name

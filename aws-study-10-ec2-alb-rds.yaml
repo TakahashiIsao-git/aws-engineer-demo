@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Study environment vpc ec2 alb add rds
+
+
+# RDSパスワードのマスク表示
+Parameters:
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+
+
+Resources:
+  # VPC
+  StudyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: aws-study-vpc
+
+
+  # Subnet
+  StudyPublicSubnetAz1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudyVPC
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: true # 学習課題としてEC2にSSH接続して動作確認を行うためにtrueを設定している。
+      AvailabilityZone: ap-northeast-1a
+      Tags:
+        - Key: Name
+          Value: aws-study-public-subnet1a
+
+  StudyPublicSubnetAz1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudyVPC
+      CidrBlock: 10.1.2.0/24
+      MapPublicIpOnLaunch: true # 学習課題としてEC2にSSH接続して動作確認を行うためにtrueを設定している。
+      AvailabilityZone: ap-northeast-1c
+      Tags:
+        - Key: Name
+          Value: aws-study-public-subnet1c
+
+
+  # EC2にSSH接続して動作確認を行う学習課題のため、インターネット通信を可能にするInternet Gatewayを作成している。
+  StudyInternetGateway:  
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: aws-study-igw
+
+
+  # EC2にSSH接続して動作確認を行うため、Internet GatewayをVPCにアタッチし、0.0.0.0/0をIGWに向けたルートを定義している。
+  StudyVPCGatewayAttachment: 
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref StudyVPC
+      InternetGatewayId: !Ref StudyInternetGateway
+
+
+  # パブリックサブネット用のルートテーブル。
+  # 0.0.0.0/0をInternet Gatewayに向けることでインターネット通信を可能にしている。
+  StudyPublicRouteTable: 
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref StudyVPC
+      Tags:
+        - Key: Name
+          Value: aws-study-public-rt
+
+
+  # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義。
+  StudyPublicRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: StudyVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0 
+      GatewayId: !Ref StudyInternetGateway   
+
+
+  # サブネットとルートテーブルの関連付け
+  StudySubnetRouteTableAssociationAz1a: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1a
+
+  StudySubnetRouteTableAssociationAz1c: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1c
+
+
+  # EC2用セキュリティグループ
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study EC2
+      VpcId: !Ref StudyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-ec2-sg
+  
+
+  # EC2本体
+  StudyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-09cd9fdbf26acc6b4 #本課題は東京リージョン前提の演習であるため、今回はAMIを固定値としています。
+      InstanceType: t2.micro
+      SubnetId: !Ref StudyPublicSubnetAz1a
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      KeyName: aws-dev-20250514
+      Monitoring: false
+      Tags:
+        - Key: Name
+          Value: aws-study-ec2
+
+
+  # ALB用セキュリティグループ
+  ALBSecurityGroup: 
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study ALB
+      VpcId: !Ref StudyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+
+  # ロードバランサー
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: aws-study-alb
+      Scheme: internet-facing
+      Type: application
+      Subnets: 
+        - !Ref StudyPublicSubnetAz1a
+        - !Ref StudyPublicSubnetAz1c
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: aws-study-alb
+
+
+  # ターゲットグループ
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: aws-study-tg
+      VpcId: !Ref StudyVPC
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckPort: "traffic-port"
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 30
+      Matcher: 
+        HttpCode: 200-301
+      Targets:
+        - Id: !Ref StudyEC2Instance
+          Port: 8080
+      Tags:
+        - Key: Name
+          Value: aws-study-tg
+
+
+  # リスナー
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+  
+
+  # RDS用セキュリティグループ（EC2からのみ接続許可）
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref StudyVPC
+      GroupDescription: AWS Study RDS
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+  
+
+  # DBサブネットグループ
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: subnet group for rds
+      SubnetIds:
+        - !Ref StudyPublicSubnetAz1a
+        - !Ref StudyPublicSubnetAz1c
+  
+
+  # RDS
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: mysql
+      EngineVersion: 8.0.43
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBMasterPassword
+      DBInstanceClass: db.t4g.micro
+      StorageType: gp3
+      AllocatedStorage: 20
+      Port: 3306
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      LicenseModel: general-public-license
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBName: awsstudy
+      BackupRetentionPeriod: 0
+      EnableCloudwatchLogsExports:
+        - error
+        - slowquery
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: aws-study-rds
