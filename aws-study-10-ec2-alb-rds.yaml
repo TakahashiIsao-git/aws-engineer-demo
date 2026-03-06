@@ -22,7 +22,8 @@ Resources:
           Value: aws-study-vpc
 
 
-  # Subnet
+  # Subnet 
+  # PublicSubnetはALBアクセス用
   StudyPublicSubnetAz1a:
     Type: AWS::EC2::Subnet
     Properties:
@@ -44,6 +45,27 @@ Resources:
       Tags:
         - Key: Name
           Value: aws-study-public-subnet1c
+    
+  # PrivateSubnetはRDSアクセス用
+  StudyPrivateSubnetAz1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudyVPC
+      CidrBlock: 10.1.11.0/24
+      AvailabilityZone: ap-northeast-1a
+      Tags:
+        - Key: Name
+          Value: aws-study-private-subnet1a
+    
+  StudyPrivateSubnetAz1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref StudyVPC
+      CidrBlock: 10.1.12.0/24
+      AvailabilityZone: ap-northeast-1c
+      Tags:
+        - Key: Name
+          Value: aws-study-private-subnet1c
 
 
   # EC2にSSH接続して動作確認を行う学習課題のため、インターネット通信を可能にするInternet Gatewayを作成している。
@@ -108,15 +130,11 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
+          CidrIp: 210.128.165.154/32
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -230,8 +248,8 @@ Resources:
     Properties: 
       DBSubnetGroupDescription: subnet group for rds
       SubnetIds:
-        - !Ref StudyPublicSubnetAz1a
-        - !Ref StudyPublicSubnetAz1c
+        - !Ref StudyPrivateSubnetAz1a
+        - !Ref StudyPrivateSubnetAz1c
   
 
   # RDS
