@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS Study environment network stack（VPC, Subnets, IGW, RouteTable）
+# ---------------------------------------
+# AWS Study 11
+# network → compute → database
+# 段階的にスタック作成して動作確認するテンプレート
+# ---------------------------------------
+
+
+Resources:
+  # VPC
+  StudyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: aws-study-vpc
+
+
+  # Subnet 
+  # PublicSubnetはALBアクセス用 
+  StudyPublicSubnetAz1a:
+    Type: AWS::EC2::Subnet 
+    Properties: 
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.1.0/24
+      # 学習課題としてEC2へSSH接続して動作確認を行うためにtrueを設定
+      MapPublicIpOnLaunch: true
+      # AZを固定値（ap-northeast-1a）ではなく
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: 
+        - Key: Name 
+          Value: aws-study-public-subnet1a 
+          
+          
+  StudyPublicSubnetAz1c:
+    Type: AWS::EC2::Subnet 
+    Properties:
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.2.0/24
+      # 学習課題としてEC2へSSH接続して動作確認を行うためにtrueを設定
+      MapPublicIpOnLaunch: true
+      # AZを固定値（ap-northeast-1c）ではなく
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: aws-study-public-subnet1c
+
+
+  # PrivateSubnetは外部インターネットから直接アクセスさせない
+  # RDSなどの内部リソース配置用 
+  StudyPrivateSubnetAz1a:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.11.0/24
+      # AZを固定値（ap-northeast-1a）ではなく
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: 
+        - Key: Name 
+          Value: aws-study-private-subnet1a
+  
+  StudyPrivateSubnetAz1c: 
+    Type: AWS::EC2::Subnet 
+    Properties: 
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.12.0/24
+      # AZを固定値（ap-northeast-1c）ではなく
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: 
+        - Key: Name 
+          Value: aws-study-private-subnet1c
+
+
+  # インターネット通信を可能にするInternet Gatewayの作成
+  # （EC2にSSH接続して動作確認を行う学習課題のため）
+  StudyInternetGateway:  
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: aws-study-igw
+
+
+  # EC2にSSH接続して動作確認を行うため、Internet GatewayをVPCにアタッチし、
+  # 0.0.0.0/0をIGWに向けたルートの定義
+  StudyVPCGatewayAttachment: 
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref StudyVPC
+      InternetGatewayId: !Ref StudyInternetGateway
+
+
+  # パブリックサブネット用のルートテーブル。
+  # 0.0.0.0/0をInternet Gatewayに向けることでインターネット通信を可能にしている。
+  StudyPublicRouteTable: 
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref StudyVPC
+      Tags:
+        - Key: Name
+          Value: aws-study-public-rt
+
+
+  # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義
+  StudyPublicRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: StudyVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0 
+      GatewayId: !Ref StudyInternetGateway   
+
+
+  # サブネットとルートテーブルの関連付け
+  StudySubnetRouteTableAssociationAz1a: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1a
+
+  StudySubnetRouteTableAssociationAz1c: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1c
+
+
+# スタック間でリソースを参照できるようにするため、
+# 次のcomputeスタックでVPCを指定できるようVPCIdを出力
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref StudyVPC
