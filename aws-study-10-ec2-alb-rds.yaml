@@ -23,7 +23,10 @@ Resources:
 
 
   # Subnet
+<<<<<<< feature/aws-study-11-network-ec2
+=======
   # PublicSubnetはALBアクセス用
+>>>>>>> main
   StudyPublicSubnetAz1a:
     Type: AWS::EC2::Subnet
     Properties:
@@ -35,7 +38,10 @@ Resources:
         - Key: Name
           Value: aws-study-public-subnet1a
 
+<<<<<<< feature/aws-study-11-network-ec2
+=======
 
+>>>>>>> main
   StudyPublicSubnetAz1c:
     Type: AWS::EC2::Subnet
     Properties:
@@ -48,6 +54,8 @@ Resources:
           Value: aws-study-public-subnet1c
 
 
+<<<<<<< feature/aws-study-11-network-ec2
+=======
   # PrivateSubnetはRDSアクセス用 
   StudyPrivateSubnetAz1a: 
     Type: AWS::EC2::Subnet 
@@ -71,6 +79,7 @@ Resources:
           Value: aws-study-private-subnet1c
 
 
+>>>>>>> main
   # EC2にSSH接続して動作確認を行う学習課題のため、インターネット通信を可能にするInternet Gatewayを作成している。
   StudyInternetGateway:  
     Type: AWS::EC2::InternetGateway
@@ -116,7 +125,10 @@ Resources:
       RouteTableId: !Ref StudyPublicRouteTable
       SubnetId: !Ref StudyPublicSubnetAz1a
 
+<<<<<<< feature/aws-study-11-network-ec2
+=======
 
+>>>>>>> main
   StudySubnetRouteTableAssociationAz1c: 
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -134,11 +146,23 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
+<<<<<<< feature/aws-study-11-network-ec2
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+=======
           CidrIp: 210.128.165.154/32
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
           SourceSecurityGroupId: !Ref ALBSecurityGroup
+>>>>>>> main
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -252,8 +276,13 @@ Resources:
     Properties: 
       DBSubnetGroupDescription: subnet group for rds
       SubnetIds:
+<<<<<<< feature/aws-study-11-network-ec2
+        - !Ref StudyPublicSubnetAz1a
+        - !Ref StudyPublicSubnetAz1c
+=======
         - !Ref StudyPrivateSubnetAz1a
         - !Ref StudyPrivateSubnetAz1c
+>>>>>>> main
   
 
   # RDS

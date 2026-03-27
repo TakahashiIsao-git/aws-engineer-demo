@@ -1,54 +1,39 @@
 AWSTemplateFormatVersion: "2010-09-09"
-<<<<<<< feature/aws-study-11-network-ec2
-Description: Study environment network compute and database
+Description: AWS Study environment compute stack（ALB and EC2）
 # ---------------------------------------
 # AWS Study 11
 # network → compute → database
 # 段階的にスタック作成して動作確認するテンプレート
 # ---------------------------------------
 
-# テンプレートを再利用可能にするため、
-# DBName、InStanceTypeとKeyNameもParameter化
-Parameters:
-  DBMasterPassword:
-    Type: String
-    NoEcho: true
 
+# テンプレートを再利用可能にするため、
+# InStanceTypeとKeyNameをParameter化
+Parameters:
   InstanceType:
     Type: String
     Default: t2.micro
+    # 入力ミスと意図しないインスタンス起動の防止
+    AllowedValues:
+      - t2.micro
+      - t3.micro
 
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
-  
-  DBName:
-    Type: String
-    Default: awsstudy
 
 
 Resources:
   # VPC
   StudyVPC:
-=======
-Description: AWS-Study Template
-
-Resources:
-  MyVPC:
->>>>>>> main
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.1.0.0/16
       EnableDnsSupport: true
-<<<<<<< feature/aws-study-11-network-ec2
       EnableDnsHostnames: true
-=======
-      EnableDnsHostnames: true # 名前解決用としてtrue設定
->>>>>>> main
       Tags:
         - Key: Name
           Value: aws-study-vpc
 
-<<<<<<< feature/aws-study-11-network-ec2
 
   # Subnet 
   # PublicSubnetはALBアクセス用 
@@ -82,7 +67,8 @@ Resources:
           Value: aws-study-public-subnet1c
 
 
-  # PrivateSubnetはRDSアクセス用 
+  # PrivateSubnetは外部インターネットから直接アクセスさせない
+  # NAT Gatewayを設置していないが、今回はRDS用として事前にPrivateSubnetを作成する 
   StudyPrivateSubnetAz1a:
     Type: AWS::EC2::Subnet
     Properties: 
@@ -111,34 +97,6 @@ Resources:
   # インターネット通信を可能にするInternet Gatewayの作成
   # （EC2にSSH接続して動作確認を行う学習課題のため）
   StudyInternetGateway:  
-=======
-  # Subnet（2つともパブリックIPを自動付与可能にする）
-  SubnetAZ1a: 
-    Type: AWS::EC2::Subnet
-    Properties:
-      CidrBlock: 10.1.1.0/24
-      VpcId: !Ref MyVPC
-      AvailabilityZone: ap-northeast-1a
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: aws-study-subnet1a
-
-  SubnetAZ1c:
-    Type: AWS::EC2::Subnet
-    Properties:
-      CidrBlock: 10.1.2.0/24
-      VpcId: !Ref MyVPC
-      AvailabilityZone: ap-northeast-1c
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: aws-study-subnet1c
-
-
-  # InternetGateway
-  MyInternetGateway:
->>>>>>> main
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
@@ -146,7 +104,6 @@ Resources:
           Value: aws-study-igw
 
 
-<<<<<<< feature/aws-study-11-network-ec2
   # EC2にSSH接続して動作確認を行うため、Internet GatewayをVPCにアタッチし、
   # 0.0.0.0/0をIGWに向けたルートの定義
   StudyVPCGatewayAttachment: 
@@ -191,71 +148,42 @@ Resources:
       SubnetId: !Ref StudyPublicSubnetAz1c
 
 
+  # ALB用セキュリティグループ
+  ALBSecurityGroup: 
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study ALB
+      VpcId: !Ref StudyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      # 明示的に追加（アウトバウンドルールの設定も必要なため）
+      SecurityGroupEgress: 
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-alb-sg
+
+
   # EC2用セキュリティグループ
   EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: AWS Study EC2
       VpcId: !Ref StudyVPC
-=======
-  # VPCGatewayAttachment
-  MyVPCGatewayAttachment: 
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref MyVPC
-      InternetGatewayId: !Ref MyInternetGateway
-
-
-  # RouteTable
-  MyRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref MyVPC
-      Tags:
-        - Key: Name
-          Value: aws-study-route
-
-
-  # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義。
-  MyRouteInternet:
-    Type: AWS::EC2::Route
-    DependsOn: MyVPCGatewayAttachment 
-    Properties:
-      RouteTableId: !Ref MyRouteTable
-      DestinationCidrBlock: 0.0.0.0/0 
-      GatewayId: !Ref MyInternetGateway   
-
-
-  # 各サブネットとルートテーブルを関連付け（パブリックサブネット化）
-  MyRouteLocal: 
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MyRouteTable
-      SubnetId: !Ref SubnetAZ1a
-
-  # ALBやRDSを配置するSubnetAZ1cもインターネットアクセスできるように関連付け
-  MyRouteLocal2: 
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref MyRouteTable
-      SubnetId: !Ref SubnetAZ1c
-
-
-  MySecurityGroupEC2:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: AWS Study EC2
-      VpcId: !Ref MyVPC
->>>>>>> main
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-<<<<<<< feature/aws-study-11-network-ec2
+          # 学習用のため固定IPからSSH接続を許可しているが、
+          # 実務では踏み台サーバまたはSSM Session Managerの利用が推奨される
           CidrIp: 210.128.165.154/32
         - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
+          FromPort: 80
+          ToPort: 80
           SourceSecurityGroupId: !Ref ALBSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -273,39 +201,31 @@ Resources:
       ImageId: ami-09cd9fdbf26acc6b4
       # 固定値からParameter化に変更
       InstanceType: !Ref InstanceType
+      # 学習用のためPublicSubnetに配置しているが、
+      # 実務ではPrivateSubnetに配置しALB経由のみアクセスさせる構成が望ましい
       SubnetId: !Ref StudyPublicSubnetAz1a
       SecurityGroupIds:
         - !Ref EC2SecurityGroup
       # 固定値からParameter化に変更
       KeyName: !Ref KeyName
+      # EC2起動時に簡単なWebサーバの自動起動設定（TargetGroupのunhealthy対策）
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          echo "Hello AWS Study" > /var/www/html/index.html
+          systemctl enable httpd
+          systemctl start httpd
+      # 本番環境では誤削除防止のため有効化するが、
+      # 学習環境ではEC2の削除できなくなるのでFalseを設定
+      DisableApiTermination: false
+      # 今回は学習のため未設定だが、
+      # 実務ではIAMロールを付与しSSMやCloudWatchを利用する前提
       Tags:
         - Key: Name
           Value: aws-study-ec2
-
-
-  # ALB用セキュリティグループ
-  ALBSecurityGroup: 
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: AWS Study ALB
-      VpcId: !Ref StudyVPC
-      SecurityGroupIngress:
-=======
-          CidrIp: 0.0.0.0/0
->>>>>>> main
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-<<<<<<< feature/aws-study-11-network-ec2
-      # 明示的に追加（アウトバウンドルールの設定も必要なため）
-      SecurityGroupEgress: 
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: aws-study-alb-sg
-
+  
 
   # ロードバランサー
   ApplicationLoadBalancer:
@@ -314,11 +234,17 @@ Resources:
       Name: aws-study-alb
       Scheme: internet-facing
       Type: application
+      # マルチAZ構成にすることで単一AZ障害時もサービス継続できるようにしている
       Subnets: 
         - !Ref StudyPublicSubnetAz1a
         - !Ref StudyPublicSubnetAz1c
       SecurityGroups:
         - !Ref ALBSecurityGroup
+      # 本番環境では誤削除防止のため有効化するが、
+      # 学習環境ではスタック削除時に支障が出るためFalseを設定
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: false
       Tags:
         - Key: Name
           Value: aws-study-alb
@@ -327,14 +253,14 @@ Resources:
   # ターゲットグループ
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    # 依存関係を明示するため追加
-    DependsOn: StudyEC2Instance
     Properties:
       Name: aws-study-tg
       VpcId: !Ref StudyVPC
       Protocol: HTTP
-      Port: 8080
+      Port: 80
       HealthCheckProtocol: HTTP
+      # httpdのデフォルトページで疎通確認を行い、
+      # アプリケーションの正常応答を確認するため「/」を指定
       HealthCheckPath: /
       HealthCheckPort: "traffic-port"
       HealthyThresholdCount: 5
@@ -345,7 +271,7 @@ Resources:
         HttpCode: 200-301
       Targets:
         - Id: !Ref StudyEC2Instance
-          Port: 8080
+          Port: 80
       Tags:
         - Key: Name
           Value: aws-study-tg
@@ -363,119 +289,19 @@ Resources:
           TargetGroupArn: !Ref ALBTargetGroup
   
 
-  # RDS用セキュリティグループ（EC2からのみ接続許可）
-  RDSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      VpcId: !Ref StudyVPC
-      GroupDescription: AWS Study RDS
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
-          SourceSecurityGroupId: !Ref EC2SecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      # タグ名の追加
-      Tags:
-        - Key: Name
-          Value: aws-study-rds-sg
-  
-
-  # DBサブネットグループ
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties: 
-      DBSubnetGroupDescription: subnet group for rds
-      SubnetIds:
-        - !Ref StudyPrivateSubnetAz1a
-        - !Ref StudyPrivateSubnetAz1c
-      # タグ名の追加
-      Tags:
-        - Key: Name
-          Value: aws-study-db-subnet-group
-
-
-  # RDSインスタンス（EC2からのみ接続可能なMySQLデータベース）
-  RDSInstance:
-    Type: AWS::RDS::DBInstance
-    # 削除保護の二重対策として追加（Stack削除時とDB再作成時でのデータ消去を防ぐため）
-    DeletionPolicy: Snapshot
-    UpdateReplacePolicy: Snapshot
-    Properties:
-      Engine: mysql
-      EngineVersion: 8.0.43
-      MasterUsername: admin
-      MasterUserPassword: !Ref DBMasterPassword
-      DBInstanceClass: db.t4g.micro
-      StorageType: gp3
-      AllocatedStorage: 20
-      Port: 3306
-      DBSubnetGroupName: !Ref DBSubnetGroup
-      PubliclyAccessible: false
-      LicenseModel: general-public-license
-      VPCSecurityGroups:
-        - !Ref RDSSecurityGroup
-      # 固定値からParameter化に変更
-      DBName: !Ref DBName
-      # RDSのバックアップを0日から7日に変更
-      BackupRetentionPeriod: 7
-      EnableCloudwatchLogsExports:
-        - error
-        - slowquery
-      AutoMinorVersionUpgrade: true
-      DeletionProtection: false
-      Tags:
-        - Key: Name
-          Value: aws-study-rds
-
-
-# スタック作成後に各リソースの識別情報を確認しやすくするため、
-# CloudFormationのOutputsに主要リソース情報を出力する。
-# ALBはDNS名でアクセスする必要があるため、ブラウザからの接続確認用として出力。
-# EC2InstanceIdはインスタンスの特定や運用時の確認を容易にするため出力。
-# RDSEndpointはEC2などのアプリケーションからデータベース接続する時の接続先確認のため出力。
+# スタック作成後に主要リソースを確認しやすくするためOutputsで出力。
+# VPCIdはVPC識別用、ALBDNSNameはブラウザ接続確認用、
+# EC2InstanceIdはインスタンス特定や運用確認のため出力。
 Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref StudyVPC
+
   ALBDNSName:
-    Description: ALB DNS Name
+    Description: ALB DNS Name（ブラウザアクセス確認用）
     Value: !GetAtt ApplicationLoadBalancer.DNSName
 
   EC2InstanceId:
     Description: EC2 Instance ID
     Value: !Ref StudyEC2Instance
 
-  RDSEndpoint:
-    Description: RDS Endpoint
-    Value: !GetAtt RDSInstance.Endpoint.Address
-=======
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: 0.0.0.0/0
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: aws-study-securityGroup-ec2
-  
-
-  MyInstance:
-  # EC2（Amazon Linux 2023, t2.micro）
-    Type: AWS::EC2::Instance
-    Properties:
-  # Amazon Linux 2023の最新AMIをSSMパラメータストアから取得
-      ImageId: !Sub "resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
-      InstanceType: t2.micro
-      SubnetId: !Ref SubnetAZ1a
-      DisableApiTermination: false
-      InstanceInitiatedShutdownBehavior: stop
-      SecurityGroupIds:
-        - !Ref MySecurityGroupEC2
-      KeyName: aws-dev-20250514
-      Monitoring: false
-      Tags:
-        - Key: Name
-          Value: aws-study-ec2
->>>>>>> main
