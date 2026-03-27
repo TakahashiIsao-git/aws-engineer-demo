@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
+<<<<<<< feature/aws-study-11-network-ec2
 Description: Study environment network compute and database
 # ---------------------------------------
 # AWS Study 11
@@ -28,15 +29,26 @@ Parameters:
 Resources:
   # VPC
   StudyVPC:
+=======
+Description: AWS-Study Template
+
+Resources:
+  MyVPC:
+>>>>>>> main
     Type: AWS::EC2::VPC
     Properties:
       CidrBlock: 10.1.0.0/16
       EnableDnsSupport: true
+<<<<<<< feature/aws-study-11-network-ec2
       EnableDnsHostnames: true
+=======
+      EnableDnsHostnames: true # 名前解決用としてtrue設定
+>>>>>>> main
       Tags:
         - Key: Name
           Value: aws-study-vpc
 
+<<<<<<< feature/aws-study-11-network-ec2
 
   # Subnet 
   # PublicSubnetはALBアクセス用 
@@ -99,6 +111,34 @@ Resources:
   # インターネット通信を可能にするInternet Gatewayの作成
   # （EC2にSSH接続して動作確認を行う学習課題のため）
   StudyInternetGateway:  
+=======
+  # Subnet（2つともパブリックIPを自動付与可能にする）
+  SubnetAZ1a: 
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.1.1.0/24
+      VpcId: !Ref MyVPC
+      AvailabilityZone: ap-northeast-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: aws-study-subnet1a
+
+  SubnetAZ1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.1.2.0/24
+      VpcId: !Ref MyVPC
+      AvailabilityZone: ap-northeast-1c
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: aws-study-subnet1c
+
+
+  # InternetGateway
+  MyInternetGateway:
+>>>>>>> main
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
@@ -106,6 +146,7 @@ Resources:
           Value: aws-study-igw
 
 
+<<<<<<< feature/aws-study-11-network-ec2
   # EC2にSSH接続して動作確認を行うため、Internet GatewayをVPCにアタッチし、
   # 0.0.0.0/0をIGWに向けたルートの定義
   StudyVPCGatewayAttachment: 
@@ -156,10 +197,61 @@ Resources:
     Properties:
       GroupDescription: AWS Study EC2
       VpcId: !Ref StudyVPC
+=======
+  # VPCGatewayAttachment
+  MyVPCGatewayAttachment: 
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyInternetGateway
+
+
+  # RouteTable
+  MyRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: aws-study-route
+
+
+  # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義。
+  MyRouteInternet:
+    Type: AWS::EC2::Route
+    DependsOn: MyVPCGatewayAttachment 
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      DestinationCidrBlock: 0.0.0.0/0 
+      GatewayId: !Ref MyInternetGateway   
+
+
+  # 各サブネットとルートテーブルを関連付け（パブリックサブネット化）
+  MyRouteLocal: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      SubnetId: !Ref SubnetAZ1a
+
+  # ALBやRDSを配置するSubnetAZ1cもインターネットアクセスできるように関連付け
+  MyRouteLocal2: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      SubnetId: !Ref SubnetAZ1c
+
+
+  MySecurityGroupEC2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study EC2
+      VpcId: !Ref MyVPC
+>>>>>>> main
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
+<<<<<<< feature/aws-study-11-network-ec2
           CidrIp: 210.128.165.154/32
         - IpProtocol: tcp
           FromPort: 8080
@@ -198,10 +290,14 @@ Resources:
       GroupDescription: AWS Study ALB
       VpcId: !Ref StudyVPC
       SecurityGroupIngress:
+=======
+          CidrIp: 0.0.0.0/0
+>>>>>>> main
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+<<<<<<< feature/aws-study-11-network-ec2
       # 明示的に追加（アウトバウンドルールの設定も必要なため）
       SecurityGroupEgress: 
         - IpProtocol: -1
@@ -352,3 +448,34 @@ Outputs:
   RDSEndpoint:
     Description: RDS Endpoint
     Value: !GetAtt RDSInstance.Endpoint.Address
+=======
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-securityGroup-ec2
+  
+
+  MyInstance:
+  # EC2（Amazon Linux 2023, t2.micro）
+    Type: AWS::EC2::Instance
+    Properties:
+  # Amazon Linux 2023の最新AMIをSSMパラメータストアから取得
+      ImageId: !Sub "resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+      InstanceType: t2.micro
+      SubnetId: !Ref SubnetAZ1a
+      DisableApiTermination: false
+      InstanceInitiatedShutdownBehavior: stop
+      SecurityGroupIds:
+        - !Ref MySecurityGroupEC2
+      KeyName: aws-dev-20250514
+      Monitoring: false
+      Tags:
+        - Key: Name
+          Value: aws-study-ec2
+>>>>>>> main
