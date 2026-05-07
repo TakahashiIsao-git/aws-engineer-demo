@@ -1,0 +1,541 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS Study environment cloudwatchlogs stack
+# ---------------------------------------
+# AWS Study 15
+# cloudwatchalarm → awswaf → cloudwatchlogs
+# 段階的にスタック作成して動作確認するテンプレート
+# ---------------------------------------
+
+
+# テンプレートを再利用可能にするため、
+# DBMasterPassword、DBName、InstanceType、KeyName
+# CPUAlarmThresholdをParameter化。
+Parameters:
+  # 今回の学習環境ではParameter化で渡すが、
+  # 本番環境ではSecrets Manager/SSM Parameter Storeを使用することが望ましい。
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    # 入力ミスと意図しないインスタンス起動の防止
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+  
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+  
+  DBName:
+    Type: String
+    Default: awsstudy
+
+  # CloudWatch Alarmのしきい値（CPU使用率）を環境ごとに調整するためのParameter。
+  # EC2インスタンスのこの値（%）を超過した場合にアラーム判定の対象となる。
+  # 環境（開発・検証・本番）ごとに適切なしきい値が異なるためParameter化している。
+  CPUAlarmThreshold:
+    Type: Number
+    Default: 80
+
+
+Resources:
+  # VPC
+  StudyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: aws-study-vpc
+
+
+  # Subnet 
+  # PublicSubnetはALBアクセス用 
+  StudyPublicSubnetAz1a:
+    Type: AWS::EC2::Subnet 
+    Properties: 
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.1.0/24
+      # 学習課題としてEC2へSSH接続して動作確認を行うためにtrueを設定。
+      MapPublicIpOnLaunch: true
+      # AZを固定値（ap-northeast-1a）ではなく、
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている。
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: 
+        - Key: Name 
+          Value: aws-study-public-subnet1a 
+          
+          
+  StudyPublicSubnetAz1c:
+    Type: AWS::EC2::Subnet 
+    Properties:
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.2.0/24
+      # 学習課題としてEC2へSSH接続して動作確認を行うためにtrueを設定。
+      MapPublicIpOnLaunch: true
+      # AZを固定値（ap-northeast-1c）ではなく、
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている。
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: aws-study-public-subnet1c
+
+
+  # PrivateSubnetは外部インターネットから直接アクセスさせない。
+  # NAT Gatewayは学習用のため設置しないが、本番では設置する。
+  # 今回の学習環境ではRDS用として事前にPrivateSubnetを作成する。
+  StudyPrivateSubnetAz1a:
+    Type: AWS::EC2::Subnet
+    Properties: 
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.11.0/24
+      # AZを固定値（ap-northeast-1a）ではなく、
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている。
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags: 
+        - Key: Name 
+          Value: aws-study-private-subnet1a
+  
+  StudyPrivateSubnetAz1c: 
+    Type: AWS::EC2::Subnet 
+    Properties: 
+      VpcId: !Ref StudyVPC 
+      CidrBlock: 10.1.12.0/24
+      # AZを固定値（ap-northeast-1c）ではなく、
+      # !GetAZsで動的取得することで他のリージョンでも再利用可能にしている。
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags: 
+        - Key: Name 
+          Value: aws-study-private-subnet1c
+
+
+  # インターネット通信を可能にするInternet Gatewayの作成
+  # （EC2にSSH接続して動作確認を行う学習環境のため）
+  StudyInternetGateway:  
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: aws-study-igw
+
+
+  # EC2にSSH接続して動作確認を行うため、Internet GatewayをVPCにアタッチし、
+  # 0.0.0.0/0をIGWに向けたルートの定義
+  StudyVPCGatewayAttachment: 
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref StudyVPC
+      InternetGatewayId: !Ref StudyInternetGateway
+
+
+  # パブリックサブネット用のルートテーブル。
+  # 0.0.0.0/0をInternet Gatewayに向けることでインターネット通信を可能にしている。
+  StudyPublicRouteTable: 
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref StudyVPC
+      Tags:
+        - Key: Name
+          Value: aws-study-public-rt
+
+
+  # インターネット向け通信（0.0.0.0/0）をInternet Gateway経由で許可するルート定義
+  StudyPublicRoute: 
+    Type: AWS::EC2::Route
+    DependsOn: StudyVPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0 
+      GatewayId: !Ref StudyInternetGateway   
+
+
+  # サブネットとルートテーブルの関連付け
+  StudySubnetRouteTableAssociationAz1a: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1a
+
+  StudySubnetRouteTableAssociationAz1c: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref StudyPublicRouteTable
+      SubnetId: !Ref StudyPublicSubnetAz1c
+
+
+  # ALB用セキュリティグループ
+  ALBSecurityGroup: 
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study ALB
+      VpcId: !Ref StudyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          # 本番環境ではHTTPS（SSL通信）とWAF（不正アクセス対策）を使用する。
+          CidrIp: 0.0.0.0/0
+      # 明示的に追加（アウトバウンドルールの設定も必要なため）
+      SecurityGroupEgress: 
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-alb-sg
+
+
+  # EC2用セキュリティグループ
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: AWS Study EC2
+      VpcId: !Ref StudyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          # 学習環境のため固定IPからSSH接続を許可しているが、
+          # 本番環境では踏み台サーバまたはSSM Session Managerの利用が推奨される
+          CidrIp: 210.128.165.154/32
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: aws-study-ec2-sg
+  
+
+  # EC2インスタンス
+  StudyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      # AMIを固定値化（SSM Parameterでの取得は望んでいない最新化が発生する可能性があるため）
+      ImageId: ami-09cd9fdbf26acc6b4
+      # 固定値からParameter化に変更
+      InstanceType: !Ref InstanceType
+      # 学習環境のためPublicSubnetに配置しているが、
+      # 本番環境ではPrivateSubnetに配置しALB経由のみアクセスさせる構成が望ましい。
+      SubnetId: !Ref StudyPublicSubnetAz1a
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      # 固定値からParameter化に変更
+      KeyName: !Ref KeyName
+      # EC2起動時に簡単なWebサーバの自動起動設定（TargetGroupのunhealthy対策）
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          echo "Hello AWS Study" > /var/www/html/index.html
+          systemctl enable httpd
+          systemctl start httpd
+      # 本番環境では誤削除防止のため有効化するが、
+      # 学習環境ではEC2の削除できなくなるのでFalseを設定。
+      DisableApiTermination: false
+      # IAMロールは今回の学習環境では未設定だが、
+      # 本番環境ではIAMロールを付与しSSMやCloudWatchを利用する前提
+      Tags:
+        - Key: Name
+          Value: aws-study-ec2
+  
+
+  # ロードバランサー
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: aws-study-alb
+      Scheme: internet-facing
+      Type: application
+      # マルチAZ構成にすることで単一AZ障害時もサービス継続できるようにしている
+      Subnets: 
+        - !Ref StudyPublicSubnetAz1a
+        - !Ref StudyPublicSubnetAz1c
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      # 本番環境では誤削除防止のため有効化するが、
+      # 学習環境ではスタック削除時に支障が出るためFalseを設定
+      LoadBalancerAttributes:
+        - Key: deletion_protection.enabled
+          Value: false
+      Tags:
+        - Key: Name
+          Value: aws-study-alb
+
+
+  # ターゲットグループ
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: aws-study-tg
+      VpcId: !Ref StudyVPC
+      Protocol: HTTP
+      Port: 80
+      HealthCheckProtocol: HTTP
+      # httpdのデフォルトページで疎通確認を行い、
+      # アプリケーションの正常応答を確認するため「/」を指定
+      HealthCheckPath: /
+      HealthCheckPort: "traffic-port"
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 30
+      Matcher: 
+        HttpCode: 200-301
+      Targets: # 本番環境ではAutoScalingGroupも使用する
+        - Id: !Ref StudyEC2Instance
+          Port: 80
+      Tags:
+        - Key: Name
+          Value: aws-study-tg
+
+
+  # ALB Listener（HTTPリクエストをALBTargetGroupへ転送）
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      # 学習段階のためHTTP構成としていますが、本番環境ではHTTPS構成が必須
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+
+  # AWS WAF（ALBへの基本的なセキュリティ対策）
+  # Webアプリケーションへの不正アクセスを防御するための設定。
+  StudyWebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: aws-study-webacl-v2
+      Scope: REGIONAL
+      # マネージドルールで不正通信を検知・ブロックする前提のため、
+      # それ以外の通常通信は許可する設計
+      DefaultAction:
+        Allow: {} 
+      # WAF全体のメトリクス設定（CloudWatchで可視化するため）
+      VisibilityConfig:
+        MetricName: aws-study-webacl
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+      # 学習段階のため最小構成としてAWSマネージドルールセットのみ適用
+      # 一般的なWeb攻撃を自動検知・防御する。
+      # 独自ルールを設定せず、最低限のセキュリティ対策を実現するために使用する。
+      # 本番環境では追加ルール（IP制限（Allow/Block）など）を検討する。
+      Rules:
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 0
+          # ルールの評価結果を上書きせず、
+          # AWSマネージドルールの判定結果（Allow/Block）をそのまま適用
+          OverrideAction: 
+            None: {} 
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          # ルール単位のメトリクス（どのルールでブロックされたかを可視化）
+          VisibilityConfig:
+            MetricName: aws-study-webacl
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+
+  # ALBにWAFを関連づける設定
+  # この設定づけを行わないとWAFは機能しないため必須
+  StudyWebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref ApplicationLoadBalancer
+      WebACLArn: !GetAtt StudyWebACL.Arn
+
+
+  # WAFログを保存するCloudWatch Logsのロググループ
+  # WAFで検知・ブロックしたリクエストの詳細を保存するために使用する。
+  # 運用時のセキュリティ分析やインシデント対応の証跡として重要な役割を持つ。
+  StudyWAFLogGroup:
+    Type: AWS::Logs::LogGroup
+    # CloudWatch Logsはログデータを保存するステートフルリソースのため、
+    # スタック削除時の挙動を明示的に指定する必要がある。
+    # 学習環境では不要なログを残さないためDeleteを指定するが、
+    # 本番環境では証跡保持のためRetainを指定することが推奨される。
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      # 「aws/waf/スタック名」という形式でロググループ名を作成
+      # 例：aws/waf/aws-study-15-cloudwatchLogs
+      LogGroupName: !Sub "aws/waf/${AWS::StackName}"
+      # 学習段階のため短めに設定。本番環境では監査要件に応じて30日～365日などに延長する。
+      RetentionInDays: 7
+
+  # WAFのログ出力設定
+  # WebACL（WAFルール）で検知・許可・ブロックされたリクエストの詳細ログを
+  # CloudWatch Logsへ出力する設定。
+  # Allow/Blockされたリクエストの詳細（IP・URI・ルール名）を記録する。
+  StudyWAFLogging:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      # ログ出力対象のWAF（WebACL）を指定
+      # StudyWebACLに適用されたすべてのリクエストが対象になる。
+      ResourceArn: !GetAtt StudyWebACL.Arn
+      # ログの保存先（CloudWatch Logsのロググループ）を指定
+      # StudyWAFLogGroupで作成したロググループに出力される。
+      LogDestinationConfigs:
+        - !GetAtt StudyWAFLogGroup.Arn
+
+
+  # RDS用セキュリティグループ（EC2からのみ接続許可）
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref StudyVPC
+      GroupDescription: AWS Study RDS
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      # タグ名の追加
+      Tags:
+        - Key: Name
+          Value: aws-study-rds-sg
+  
+
+  # DBサブネットグループ
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription: subnet group for rds
+      SubnetIds:
+        - !Ref StudyPrivateSubnetAz1a
+        - !Ref StudyPrivateSubnetAz1c
+      # タグ名の追加
+      Tags:
+        - Key: Name
+          Value: aws-study-db-subnet-group
+
+
+  # RDSインスタンス（EC2からのみ接続可能なMySQLデータベース）
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    # スタック削除時にDBインスタンスのスナップショットを自動作成
+    # 誤って削除した時でもスナップショットから復元できるための安全対策。
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: mysql
+      EngineVersion: 8.0.43
+      # 別の場所（AZ）に予備のDBを自動で作成する設定。
+      # 使っているDBが止まっても、自動で予備に切り替わる。
+      # DBが止まるとWebサービスも止まるため、それを防ぐための対策。
+      MultiAZ: true
+      MasterUsername: admin
+      MasterUserPassword: !Ref DBMasterPassword
+      DBInstanceClass: db.t4g.micro
+      StorageType: gp3
+      AllocatedStorage: 20
+      # データが増えてディスクがいっぱいになりそうなときに、
+      # 自動で容量を増やす上限サイズ。
+      # 容量不足でDBが停止しないための対策。
+      MaxAllocatedStorage: 100
+      Port: 3306
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      LicenseModel: general-public-license
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      # 固定値からParameter化に変更
+      DBName: !Ref DBName
+      # 自動バックアップの保持期間（日数）を設定。
+      # 誤操作でデータを消去したり、アプリケーションの不具合でデータが破損した場合、
+      # 過去の状態に復旧できるための対策。
+      BackupRetentionPeriod: 7
+      # DBの動きをログとして保存する設定。
+      # errorログ：エラーが発生したときの記録（原因調査に使用）
+      # slowqueryログ：時間がかかった処理の記録（遅い原因を見つけるため）
+      # 問題発生時に「何が起きたか」を後から確認するために使用する。
+      EnableCloudwatchLogsExports:
+        - error
+        - slowquery
+      # DBの動きを可視化する機能 
+      #今回使用しているインスタンス（db.t4g.micro）が非対応のため無効化。
+      EnablePerformanceInsights: false
+      AutoMinorVersionUpgrade: true
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: aws-study-rds
+
+  # CloudWatch Alarm（EC2 CPU監視）
+  # EC2インスタンスのCPU使用率を継続的に監視し、
+  # 設定したしきい値（Parameterで指定）を一定回数超過した場合にアラーム状態へ遷移する。
+  # 本来はSNS通知と連携するが、学習環境の制約により未設定にしている。
+  # 高負荷状態の検知やリソース不足、異常プロセスの早期発見を目的とする。
+  StudyEC2CPUUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: aws-study-cpu-utilization-alarm
+      AlarmDescription: "AWS-Study EC2のCPU使用率が80%以上になりました。"
+      Namespace: "AWS/EC2"
+      Dimensions:
+        - Name: "InstanceId"
+          Value: !Ref StudyEC2Instance
+      MetricName: CPUUtilization
+      Unit: "Percent"
+      Period: 300
+      Statistic: "Average"
+      Threshold: !Ref CPUAlarmThreshold
+      ComparisonOperator: "GreaterThanOrEqualToThreshold"
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      TreatMissingData: "missing"
+      ActionsEnabled: false
+        
+
+
+# スタック作成後に主要リソースを確認しやすくするためOutputsで出力。
+# VPCIdはVPC識別用、ALBDNSNameはブラウザ接続確認用、
+# EC2InstanceIdはインスタンス特定や運用確認のため出力。
+# RDSEndpointはEC2などのアプリケーションからデータベース接続する時の接続先確認のため出力。
+# EC2CPUUtilizationAlarmはアラーム名を出力し、CloudWatch上での監視設定の確認や運用時の識別に利用する。
+# WAFWebACLArnはWebACLのARNを出力し、ALBに適用されているWAFの識別と設定確認に利用する。
+# また、別スタックからの参照や、運用時のトラブルシューティング（どのWAFが適用されているかの特定）にも使用する。
+# WAFLogGroupNameはCloudWatch Logs画面で対象ログをすぐに確認できるよう作成したロググループ名の出力。
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref StudyVPC
+
+  ALBDNSName:
+    Description: ALB DNS Name（ブラウザアクセス確認用）
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  EC2InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref StudyEC2Instance
+
+  RDSEndpoint:
+    Description: RDS Endpoint
+    Value: !GetAtt RDSInstance.Endpoint.Address
+
+  EC2CPUUtilizationAlarm:
+    Description: EC2 CPU Alarm Name
+    Value: !Ref StudyEC2CPUUtilizationAlarm
+  
+  WAFWebACLArn:
+    Description: WAF WebACL Arn
+    Value: !GetAtt StudyWebACL.Arn
+  
+  WAFLogGroupName:
+    Description: WAFログの出力先CloudWatch Logsグループ名（セキュリティ分析・障害調査で使用）
+    Value: !Ref StudyWAFLogGroup
+
