@@ -356,38 +356,45 @@ Resources:
       WebACLArn: !GetAtt StudyWebACL.Arn
 
 
+  # ------------------------------------------------------------------
+  # CloudWatch Logs連携
   # WAFログを保存するCloudWatch Logsのロググループ
   # WAFで検知・ブロックしたリクエストの詳細を保存するために使用する。
   # 運用時のセキュリティ分析やインシデント対応の証跡として重要な役割を持つ。
-  StudyWAFLogGroup:
-    Type: AWS::Logs::LogGroup
+  # 学習環境では logs:CreateLogGroup 権限が付与されていないため、
+  # CloudFormation作成時に AccessDenied が発生する。
+  # そのため現在はコメントアウトし、IaC設計・コード実装のみ学習対象として保持する。
+  # 本番環境では有効化してWAFログ監視を行う。
+  # --------------------------------------------------
+  #StudyWAFLogGroup:
+    #Type: AWS::Logs::LogGroup
     # CloudWatch Logsはログデータを保存するステートフルリソースのため、
     # スタック削除時の挙動を明示的に指定する必要がある。
     # 学習環境では不要なログを残さないためDeleteを指定するが、
     # 本番環境では証跡保持のためRetainを指定することが推奨される。
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Delete
-    Properties:
+    #DeletionPolicy: Delete
+    #UpdateReplacePolicy: Delete
+    #Properties:
       # 「aws/waf/スタック名」という形式でロググループ名を作成
       # 例：aws/waf/aws-study-15-cloudwatchLogs
-      LogGroupName: !Sub "aws/waf/${AWS::StackName}"
+      #LogGroupName: !Sub "aws/waf/${AWS::StackName}"
       # 学習段階のため短めに設定。本番環境では監査要件に応じて30日～365日などに延長する。
-      RetentionInDays: 7
+      #RetentionInDays: 7
 
   # WAFのログ出力設定
   # WebACL（WAFルール）で検知・許可・ブロックされたリクエストの詳細ログを
   # CloudWatch Logsへ出力する設定。
   # Allow/Blockされたリクエストの詳細（IP・URI・ルール名）を記録する。
-  StudyWAFLogging:
-    Type: AWS::WAFv2::LoggingConfiguration
-    Properties:
+  #StudyWAFLogging:
+    #Type: AWS::WAFv2::LoggingConfiguration
+    #Properties:
       # ログ出力対象のWAF（WebACL）を指定
       # StudyWebACLに適用されたすべてのリクエストが対象になる。
-      ResourceArn: !GetAtt StudyWebACL.Arn
+      #ResourceArn: !GetAtt StudyWebACL.Arn
       # ログの保存先（CloudWatch Logsのロググループ）を指定
       # StudyWAFLogGroupで作成したロググループに出力される。
-      LogDestinationConfigs:
-        - !GetAtt StudyWAFLogGroup.Arn
+      #LogDestinationConfigs:
+        #- !GetAtt StudyWAFLogGroup.Arn
 
 
   # RDS用セキュリティグループ（EC2からのみ接続許可）
@@ -510,6 +517,7 @@ Resources:
 # WAFWebACLArnはWebACLのARNを出力し、ALBに適用されているWAFの識別と設定確認に利用する。
 # また、別スタックからの参照や、運用時のトラブルシューティング（どのWAFが適用されているかの特定）にも使用する。
 # WAFLogGroupNameはCloudWatch Logs画面で対象ログをすぐに確認できるよう作成したロググループ名の出力。
+# CloudWatch Logs連携のリソースと同様にWAFLogGroupNameもコメントアウトする。
 Outputs:
   VPCId:
     Description: VPC ID
@@ -535,7 +543,7 @@ Outputs:
     Description: WAF WebACL Arn
     Value: !GetAtt StudyWebACL.Arn
   
-  WAFLogGroupName:
-    Description: WAFログの出力先CloudWatch Logsグループ名（セキュリティ分析・障害調査で使用）
-    Value: !Ref StudyWAFLogGroup
+  #WAFLogGroupName:
+    #Description: WAFログの出力先CloudWatch Logsグループ名（セキュリティ分析・障害調査で使用）
+    #Value: !Ref StudyWAFLogGroup
 
