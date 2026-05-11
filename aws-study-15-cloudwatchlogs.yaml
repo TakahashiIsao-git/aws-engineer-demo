@@ -361,8 +361,8 @@ Resources:
   # WAFログを保存するCloudWatch Logsのロググループ
   # WAFで検知・ブロックしたリクエストの詳細を保存するために使用する。
   # 運用時のセキュリティ分析やインシデント対応の証跡として重要な役割を持つ。
-  # 学習環境では logs:CreateLogGroup 権限が付与されていないため、
-  # CloudFormation作成時に AccessDenied が発生する。
+  # 学習環境では logs:CreateLogGroup権限が付与されていないため、
+  # CloudFormation作成時にAccessDeniedが発生する。
   # そのため現在はコメントアウトし、IaC設計・コード実装のみ学習対象として保持する。
   # 本番環境では有効化してWAFログ監視を行う。
   # --------------------------------------------------
@@ -517,7 +517,7 @@ Resources:
 # WAFWebACLArnはWebACLのARNを出力し、ALBに適用されているWAFの識別と設定確認に利用する。
 # また、別スタックからの参照や、運用時のトラブルシューティング（どのWAFが適用されているかの特定）にも使用する。
 # WAFLogGroupNameはCloudWatch Logs画面で対象ログをすぐに確認できるよう作成したロググループ名の出力。
-# CloudWatch Logs連携のリソースと同様にWAFLogGroupNameもコメントアウトする。
+# CloudWatch Logs連携のリソースと同様に学習環境ではWAFLogGroupNameもコメントアウトする。
 Outputs:
   VPCId:
     Description: VPC ID
